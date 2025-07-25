@@ -1,0 +1,209 @@
+---
+title: "COSMO rMATS initial analysis"
+author: "Shay Iyer"
+date: "2025-07-15"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, results = "show")
+library(tidyverse)
+library(maser)
+library(rtracklayer)
+```
+
+Group 1: Basal
+Group 2: TGFB-treated
+
+# Maser
+
+```{r}
+cosmo.maser <- maser("/Volumes/cphg-millerlab/katherine_shillito/cosmo-rmats/04_outputs/post-directory-1", c("Basal", "TGFB1"), ftype="JCEC")
+```
+
+## Maser data pre-processing
+
+```{r}
+cosmo.filt <- filterByCoverage(cosmo.maser, avg_reads=5)
+cosmo.top <- topEvents(cosmo.maser, fdr = 0.1, deltaPSI = 0.05)
+cosmo.filt.df <- summary(cosmo.filt)
+cosmo.maser.df <- summary(cosmo.maser)
+
+cosmo.top.df <- summary(cosmo.top) %>% arrange(desc(abs(IncLevelDifference)))
+
+cosmo.filt.df <- cosmo.filt.df %>% arrange(desc(abs(IncLevelDifference)))
+```
+
+## Basic plots
+
+```{r}
+se <- summary(cosmo.filt, type = "SE") %>% mutate("eventType" = "SE") %>% select(c(eventType, ID, GeneID, geneSymbol, PValue, FDR, IncLevelDifference, PSI_1, PSI_2, Chr, Strand))
+mxe <- summary(cosmo.filt, type = "MXE") %>% mutate("eventType" = "MXE") %>% select(c(eventType, ID, GeneID, geneSymbol, PValue, FDR, IncLevelDifference, PSI_1, PSI_2, Chr, Strand))
+a3ss <- summary(cosmo.filt, type = "A3SS") %>% mutate("eventType" = "A3SS") %>% select(c(eventType, ID, GeneID, geneSymbol, PValue, FDR, IncLevelDifference, PSI_1, PSI_2, Chr, Strand))
+a5ss <- summary(cosmo.filt, type = "A5SS") %>% mutate("eventType" = "A5SS") %>% select(c(eventType, ID, GeneID, geneSymbol, PValue, FDR, IncLevelDifference, PSI_1, PSI_2, Chr, Strand))
+ri <- summary(cosmo.filt, type = "RI") %>% mutate("eventType" = "RI") %>% select(c(eventType, ID, GeneID, geneSymbol, PValue, FDR, IncLevelDifference, PSI_1, PSI_2, Chr, Strand))
+
+allevents <- rbind(se, mxe, a3ss, a5ss, ri)
+
+allevents.filt <- allevents %>% filter(FDR < 0.05, abs(IncLevelDifference) > 0.1)
+```
+
+```{r}
+allevents <- allevents %>%
+  mutate(Significant = ifelse(PValue < 0.05 & FDR < 0.05 & abs(IncLevelDifference) > 0.2, "Significant", "Not Significant")) %>% mutate(SigDirection = case_when(
+    PValue < 0.05 & FDR < 0.05 & IncLevelDifference > 0.2  ~ "Basal",
+    PValue < 0.05 & FDR < 0.05 & IncLevelDifference < -0.2 ~ "TGFB1",
+    TRUE ~ "Not Significant"
+  ))
+
+ggplot(allevents.filt, aes(x = eventType)) +
+  geom_bar() +
+  labs(title = "Breakdown of significant splicing events by event type",
+       subtitle = "COSMO Basal vs. TGFB1 treatment; FDR < 0.05, |∆PSI|>0.1", 
+       x = "Event Type",
+       y = "Number of Events") +
+  theme_minimal()
+```
+
+```{r}
+library(ggrepel)
+ggplot(allevents, aes(x = IncLevelDifference, y = -log10(PValue))) +
+  geom_point(aes(color = SigDirection), alpha = 0.7) +
+  scale_color_manual(values = c("Basal" = "blue", "TGFB1" = "red", "Not Significant" = "grey")) +
+  geom_vline(xintercept = c(-0.1, 0.1), linetype = "dashed") +
+  geom_hline(yintercept = -log10(0.05), linetype = "dashed") +
+  # Add gene labels for significant points
+  geom_text_repel(
+    data = subset(allevents, SigDirection %in% c("Basal", "TGFB1")),
+    aes(label = geneSymbol),
+    size = 3,
+    max.overlaps = 1000,      # Increase if some labels still missing
+    box.padding = 0.35,       # Adjust space around labels
+    point.padding = 0.3,      # Adjust space between label and point
+    force = 2,                # Increase for stronger repulsion
+    segment.size = 0.2        # Thinner connector lines
+  ) +
+  labs(title = "Volcano Plot of rMATS Events",
+       subtitle = "FDR < 0.05, p < 0.05, |∆PSI| > 0.18",
+       x = expression(Delta*PSI),
+       y = expression(-log[10](PValue)),
+       color = "Condition") +
+  theme_minimal()
+
+```
+
+```{r}
+top_hits <- allevents %>%
+  filter(SigDirection != "Not Significant") %>%
+  arrange(PValue) %>%
+  head(25)
+
+library(ggrepel)
+ggplot(allevents, aes(x = IncLevelDifference, y = -log10(PValue))) +
+  geom_point(aes(color = SigDirection), alpha = 0.7) +
+  scale_color_manual(values = c("Basal" = "blue", "TGFB1" = "red", "Not Significant" = "grey")) +
+  geom_vline(xintercept = c(-0.1, 0.1), linetype = "dashed") +
+  geom_hline(yintercept = -log10(0.05), linetype = "dashed") +
+  # Add gene labels for significant points
+  geom_text_repel(
+    data = top_hits,
+    aes(label = geneSymbol),
+    size = 3,
+    max.overlaps = 1000,      # Increase if some labels still missing
+    box.padding = 0.35,       # Adjust space around labels
+    point.padding = 0.3,      # Adjust space between label and point
+    force = 2,                # Increase for stronger repulsion
+    segment.size = 0.2        # Thinner connector lines
+  ) +
+  labs(title = "Volcano Plot of Top 25 most significant rMATS Events",
+       subtitle = "FDR < 0.05, p < 0.05, |∆PSI| > 0.18; arranged by p value",
+       x = expression(Delta*PSI),
+       y = expression(-log[10](PValue)),
+       color = "Condition") +
+  theme_minimal()
+
+```
+
+## Specific splicing events
+
+
+```{r}
+
+se.filt.sum <- summary(cosmo.filt, type = "SE") 
+mxe.filt.sum <- summary(cosmo.filt, type = "MXE")
+a3ss.filt.sum <- summary(cosmo.filt, type = "A3SS")
+a5ss.filt.sum <- summary(cosmo.filt, type = "A5SS")
+ri.filt.sum <- summary(cosmo.filt, type = "RI")
+se.top.sum <- summary(cosmo.top, type = "SE") %>% arrange(IncLevelDifference) %>% select(c(ID, GeneID, geneSymbol, PValue, FDR, IncLevelDifference, PSI_1, PSI_2, Chr, Strand)) %>% mutate(eventType = "SE")
+mxe.top.sum <-summary(cosmo.top, type = "MXE") %>% arrange(IncLevelDifference) %>% select(c(ID, GeneID, geneSymbol, PValue, FDR, IncLevelDifference, PSI_1, PSI_2, Chr, Strand)) %>% mutate(eventType = "MXE")
+a3ss.top.sum <- summary(cosmo.top, type = "A3SS") %>% arrange(IncLevelDifference) %>% select(c(ID, GeneID, geneSymbol, PValue, FDR, IncLevelDifference, PSI_1, PSI_2, Chr, Strand)) %>% mutate(eventType = "A3SS")
+a5ss.top.sum <- summary(cosmo.top, type = "A5SS") %>% arrange(IncLevelDifference) %>% select(c(ID, GeneID, geneSymbol, PValue, FDR, IncLevelDifference, PSI_1, PSI_2, Chr, Strand)) %>% mutate(eventType = "A5SS")
+ri.top.sum <- summary(cosmo.top, type = "RI") %>% arrange(IncLevelDifference) %>% select(c(ID, GeneID, geneSymbol, PValue, FDR, IncLevelDifference, PSI_1, PSI_2, Chr, Strand)) %>% mutate(eventType = "RI")
+
+all.top.events <- rbind(se.top.sum, mxe.top.sum, a3ss.top.sum, a5ss.top.sum, ri.top.sum)
+```
+
+> Genes from top events implicated in VSMC transitions/atherosclerosis, as identified by CellGPT 4o
+
+- FHOD1: [Novel signaling axis of FHOD1-RNF213-Col1α/Col3α in the pathogenesis of hypertension-induced tunica media thickening](https://www.sciencedirect.com/science/article/pii/S0022282823001141), [Formin homology domain-containing protein 1 regulates smooth muscle cell phenotype](https://pubmed.ncbi.nlm.nih.gov/21106951/)
+- STAT6: ["The downstream network of STAT6 in promoting vascular smooth muscle cell phenotypic switch and neointimal formation"](https://onlinelibrary.wiley.com/doi/full/10.1002/cbin.12056)
+- MRTFA: [Signaling Mechanisms That Regulate Smooth Muscle Cell Differentiation](https://pmc.ncbi.nlm.nih.gov/articles/PMC3141215/) (this also mentions FHOD1), [A Novel Role of Brg1 in the Regulation of SRF/MRTFA-dependent Smooth Muscle-specific Gene Expression](https://www.sciencedirect.com/science/article/pii/S0021925820746466?via%3Dihub)
+- SRGAP1: [H3K4 di-methylation governs smooth muscle lineage identity and promotes vascular homeostasis by restraining plasticity (Fig 8c)](https://pmc.ncbi.nlm.nih.gov/articles/PMC8567421/)
+- IL32: ["Clinical Implications of IL-32, IL-34 and IL-37 in Atherosclerosis: Speculative Role in Cardiovascular Manifestations of COVID-19"](https://pmc.ncbi.nlm.nih.gov/articles/PMC8377289/?utm_source=chatgpt.com)
+- DDIT3 (aka CHOP): [CHOP Increases TRIB3-Dependent miR-208 Expression to Potentiate Vascular Smooth Muscle Cell Proliferation and Migration by Downregulating TIMP3 in Atherosclerosis](https://pubmed.ncbi.nlm.nih.gov/33856595/)
+
+
+```{r}
+# Specific splicing events
+print("------FHOD1------")
+cosmo.fhod1 <- geneEvents(cosmo.top, geneS = "FHOD1", fdr = 0.05, deltaPSI = 0.1) # 1 SE event
+print("------STAT6------")
+cosmo.stat6 <- geneEvents(cosmo.top, geneS = "STAT6", fdr = 0.05, deltaPSI = 0.1) # 2 SE events
+print("------MRTFA------")
+cosmo.mrtfa <- geneEvents(cosmo.top, geneS = "MRTFA", fdr = 0.05, deltaPSI = 0.1) # 1 SE event
+print("------SRGAP1------")
+cosmo.srgap1 <- geneEvents(cosmo.top, geneS = "SRGAP1", fdr = 0.05, deltaPSI = 0.1) # 1 MXE event
+print("------IL32------")
+cosmo.il32 <- geneEvents(cosmo.top, geneS = "IL32", fdr = 0.05, deltaPSI = 0.1) # 1 A5SS event
+print("------DDIT/CHOP------")
+cosmo.ddit3 <- geneEvents(cosmo.top, geneS = "DDIT3", fdr = 0.05, deltaPSI = 0.1) # 1 RI event
+
+print(c(cosmo.fhod1, cosmo.stat6, cosmo.mrtfa, cosmo.srgap1, cosmo.il32, cosmo.ddit3))
+```
+
+```{r}
+fhod1.violin <- plotGenePSI(cosmo.fhod1, type = "SE", show_replicates = TRUE) + labs(
+  title = "PSI values for significant SE event, FHOD1",
+  subtitle = "FDR < 0.05, p < 0.05, |∆PSI| > 0.1")
+stat6.violin <- plotGenePSI(cosmo.stat6, type = "SE", show_replicates = TRUE) + labs(
+  title = "PSI values for significant SE event, STAT6",
+  subtitle = "FDR < 0.05, p < 0.05, |∆PSI| > 0.1")
+mrtfa.violin <- plotGenePSI(cosmo.mrtfa, type = "SE", show_replicates = TRUE) + labs(
+  title = "PSI values for significant SE event, MRTFA",
+  subtitle = "FDR < 0.05, p < 0.05, |∆PSI| > 0.1")
+srgap1.violin <- plotGenePSI(cosmo.srgap1, type = "MXE", show_replicates = TRUE) + labs(
+  title = "PSI values for significant MXE event, SRGAP1",
+  subtitle = "FDR < 0.05, p < 0.05, |∆PSI| > 0.1")
+il32.violin <- plotGenePSI(cosmo.il32, type = "A5SS", show_replicates = TRUE) + labs(
+  title = "PSI values for significant A5SS event, IL32",
+  subtitle = "FDR < 0.05, p < 0.05, |∆PSI| > 0.1")
+ddit3.violin <- plotGenePSI(cosmo.ddit3, type = "RI", show_replicates = TRUE) + labs(
+  title = "PSI values for significant RI event, DDIT3",
+  subtitle = "FDR < 0.05, p < 0.05, |∆PSI| > 0.1")
+
+library(gridExtra) 
+grid.arrange(fhod1.violin, stat6.violin, mrtfa.violin, srgap1.violin, il32.violin, ddit3.violin, ncol = 3, top="PSI of significant events in genes implicated in SMC diff/athero")
+```
+
+Additional to look into 
+- RNF111 https://www.sciencedirect.com/science/article/pii/S1535947621001456?via%3Dihub 
+- RALGDS https://pubmed.ncbi.nlm.nih.gov/12767920/
+- KIDINS220 https://www.nature.com/articles/cddis2011108
+- APBB2
+
+```{r}
+print(cosmo.top.df$geneSymbol)
+```
+

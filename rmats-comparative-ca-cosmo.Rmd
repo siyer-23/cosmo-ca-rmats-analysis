@@ -1,0 +1,20 @@
+---
+title: "Comparative Analysis of Coronary Artery and COSMO-HA TGFB1 Splicing Events"
+author: "Shay Iyer"
+date: "2025-07-25"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, results = "show")
+library(tidyverse)
+library(maser)
+library(rtracklayer)
+```
+
+```{r}
+cosmo.maser <- maser("/Volumes/cphg-millerlab/katherine_shillito/cosmo-rmats/04_outputs/post-directory-1", c("Basal", "TGFB1"), ftype="JCEC")
+
+ca.maser <- maser("/Volumes/cphg-millerlab/katherine_shillito/coronary-rmats/03_outputs/post/post-directory1", c("Ischemic", "Non-ischemic"), ftype="JCEC")
+```
+

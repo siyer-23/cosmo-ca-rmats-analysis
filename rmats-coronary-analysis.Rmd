@@ -1,0 +1,149 @@
+---
+title: "rmats-coronary-analysis"
+author: "Shay Iyer"
+date: "2025-07-25"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+# This was just copy-pasted as needed
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, results = "show")
+library(tidyverse)
+library(maser)
+library(rtracklayer)
+```
+
+Group 1: Ischemic
+Group 2: Non-ischemic
+
+# Maser
+
+```{r}
+ca.maser <- maser("/Volumes/cphg-millerlab/katherine_shillito/coronary-rmats/03_outputs/post/post-directory1", c("Ischemic", "Non-ischemic"), ftype="JCEC")
+```
+
+## Maser data pre-processing
+
+```{r}
+ca.filt <- filterByCoverage(ca.maser, avg_reads=5) 
+ca.top <- topEvents(ca.filt, fdr = 0.1, deltaPSI = 0.05)
+ca.filt.df <- summary(ca.filt)
+ca.maser.df <- summary(ca.maser)
+
+ca.top.df <- summary(ca.top) %>% arrange(desc(abs(IncLevelDifference)))
+
+ca.filt.df <- ca.filt.df %>% arrange(desc(abs(IncLevelDifference)))
+```
+
+## Basic plots
+
+```{r}
+se <- summary(ca.top, type = "SE") %>% mutate("eventType" = "SE") %>% select(c(eventType, ID, GeneID, geneSymbol, PValue, FDR, IncLevelDifference, PSI_1, PSI_2, Chr, Strand))
+mxe <- summary(ca.top, type = "MXE") %>% mutate("eventType" = "MXE") %>% select(c(eventType, ID, GeneID, geneSymbol, PValue, FDR, IncLevelDifference, PSI_1, PSI_2, Chr, Strand))
+a3ss <- summary(ca.top, type = "A3SS") %>% mutate("eventType" = "A3SS") %>% select(c(eventType, ID, GeneID, geneSymbol, PValue, FDR, IncLevelDifference, PSI_1, PSI_2, Chr, Strand))
+a5ss <- summary(ca.top, type = "A5SS") %>% mutate("eventType" = "A5SS") %>% select(c(eventType, ID, GeneID, geneSymbol, PValue, FDR, IncLevelDifference, PSI_1, PSI_2, Chr, Strand))
+ri <- summary(ca.top, type = "RI") %>% mutate("eventType" = "RI") %>% select(c(eventType, ID, GeneID, geneSymbol, PValue, FDR, IncLevelDifference, PSI_1, PSI_2, Chr, Strand))
+
+allevents <- rbind(se, mxe, a3ss, a5ss, ri)
+
+allevents.filt <- allevents %>% filter(FDR < 0.05, abs(IncLevelDifference) > 0.1)
+```
+
+```{r}
+allevents <- allevents %>%
+  mutate(Significant = ifelse(PValue < 0.05 & FDR < 0.05 & abs(IncLevelDifference) > 0.2, "Significant", "Not Significant")) %>% mutate(SigDirection = case_when(
+    PValue < 0.05 & FDR < 0.05 & IncLevelDifference > 0.2  ~ "Ischemic",
+    PValue < 0.05 & FDR < 0.05 & IncLevelDifference < -0.2 ~ "Non-ischemic",
+    TRUE ~ "Not Significant"
+  ))
+
+ggplot(allevents.filt, aes(x = eventType)) +
+  geom_bar() +
+  labs(title = "Breakdown of significant splicing events by event type",
+       subtitle = "Ischemic vs. non-ischemic samples; FDR < 0.05, |∆PSI|>0.1", 
+       x = "Event Type",
+       y = "Number of Events") +
+  theme_minimal()
+```
+
+
+```{r}
+top_hits <- allevents %>%
+  filter(SigDirection != "Not Significant") %>%
+  arrange(PValue) %>%
+  head(25)
+
+library(ggrepel)
+ggplot(allevents, aes(x = IncLevelDifference, y = -log10(PValue))) +
+  geom_point(aes(color = SigDirection), alpha = 0.7) +
+  scale_color_manual(values = c("Ischemic" = "red", "Non-ischemic" = "blue", "Not Significant" = "grey")) +
+  geom_vline(xintercept = c(-0.1, 0.1), linetype = "dashed") +
+  geom_hline(yintercept = -log10(0.05), linetype = "dashed") +
+  # Add gene labels for significant points
+  geom_text_repel(
+    data = top_hits,
+    aes(label = geneSymbol),
+    size = 3,
+    max.overlaps = 1000,      # Increase if some labels still missing
+    box.padding = 0.35,       # Adjust space around labels
+    point.padding = 0.3,      # Adjust space between label and point
+    force = 2,                # Increase for stronger repulsion
+    segment.size = 0.2        # Thinner connector lines
+  ) +
+  labs(title = "Volcano Plot of Top 25 most significant rMATS Events",
+       subtitle = "FDR < 0.05, p < 0.05, |∆PSI| > 0.18; arranged by p value",
+       x = expression(Delta*PSI),
+       y = expression(-log[10](PValue)),
+       color = "Condition") +
+  theme_minimal()
+
+```
+
+## Specific splicing events
+
+
+```{r}
+
+se.filt.sum <- summary(ca.filt, type = "SE") 
+mxe.filt.sum <- summary(ca.filt, type = "MXE")
+a3ss.filt.sum <- summary(ca.filt, type = "A3SS")
+a5ss.filt.sum <- summary(ca.filt, type = "A5SS")
+ri.filt.sum <- summary(ca.filt, type = "RI")
+se.top.sum <- summary(ca.top, type = "SE") %>% arrange(IncLevelDifference) %>% select(c(ID, GeneID, geneSymbol, PValue, FDR, IncLevelDifference, PSI_1, PSI_2, Chr, Strand)) %>% mutate(eventType = "SE")
+mxe.top.sum <-summary(ca.top, type = "MXE") %>% arrange(IncLevelDifference) %>% select(c(ID, GeneID, geneSymbol, PValue, FDR, IncLevelDifference, PSI_1, PSI_2, Chr, Strand)) %>% mutate(eventType = "MXE")
+a3ss.top.sum <- summary(ca.top, type = "A3SS") %>% arrange(IncLevelDifference) %>% select(c(ID, GeneID, geneSymbol, PValue, FDR, IncLevelDifference, PSI_1, PSI_2, Chr, Strand)) %>% mutate(eventType = "A3SS")
+a5ss.top.sum <- summary(ca.top, type = "A5SS") %>% arrange(IncLevelDifference) %>% select(c(ID, GeneID, geneSymbol, PValue, FDR, IncLevelDifference, PSI_1, PSI_2, Chr, Strand)) %>% mutate(eventType = "A5SS")
+ri.top.sum <- summary(ca.top, type = "RI") %>% arrange(IncLevelDifference) %>% select(c(ID, GeneID, geneSymbol, PValue, FDR, IncLevelDifference, PSI_1, PSI_2, Chr, Strand)) %>% mutate(eventType = "RI")
+
+all.top.events <- rbind(se.top.sum, mxe.top.sum, a3ss.top.sum, a5ss.top.sum, ri.top.sum)
+
+```
+
+> Genes from top events implicated in VSMC transitions/atherosclerosis, as identified by CellGPT 4o
+
+- FHOD1: [Novel signaling axis of FHOD1-RNF213-Col1α/Col3α in the pathogenesis of hypertension-induced tunica media thickening](https://www.sciencedirect.com/science/article/pii/S0022282823001141), [Formin homology domain-containing protein 1 regulates smooth muscle cell phenotype](https://pubmed.ncbi.nlm.nih.gov/21106951/)
+- STAT6: ["The downstream network of STAT6 in promoting vascular smooth muscle cell phenotypic switch and neointimal formation"](https://onlinelibrary.wiley.com/doi/full/10.1002/cbin.12056)
+- MRTFA: [Signaling Mechanisms That Regulate Smooth Muscle Cell Differentiation](https://pmc.ncbi.nlm.nih.gov/articles/PMC3141215/) (this also mentions FHOD1), [A Novel Role of Brg1 in the Regulation of SRF/MRTFA-dependent Smooth Muscle-specific Gene Expression](https://www.sciencedirect.com/science/article/pii/S0021925820746466?via%3Dihub)
+- SRGAP1: [H3K4 di-methylation governs smooth muscle lineage identity and promotes vascular homeostasis by restraining plasticity (Fig 8c)](https://pmc.ncbi.nlm.nih.gov/articles/PMC8567421/)
+- IL32: ["Clinical Implications of IL-32, IL-34 and IL-37 in Atherosclerosis: Speculative Role in Cardiovascular Manifestations of COVID-19"](https://pmc.ncbi.nlm.nih.gov/articles/PMC8377289/?utm_source=chatgpt.com)
+- DDIT3 (aka CHOP): [CHOP Increases TRIB3-Dependent miR-208 Expression to Potentiate Vascular Smooth Muscle Cell Proliferation and Migration by Downregulating TIMP3 in Atherosclerosis](https://pubmed.ncbi.nlm.nih.gov/33856595/)
+
+
+```{r}
+# Specific splicing events
+print("------FHOD1------")
+ca.fhod1 <- geneEvents(ca.top, geneS = "FHOD1", fdr = 0.05, deltaPSI = 0.1) # 1 SE 
+```
+
+```{r}
+fhod1.violin <- plotGenePSI(ca.fhod1, type = "SE", show_replicates = TRUE) + labs(
+  title = "PSI values for significant SE event, FHOD1",
+  subtitle = "FDR < 0.05, p < 0.05, |∆PSI| > 0.1")
+```
+
+```{r}
+
+```
